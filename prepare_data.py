@@ -27,6 +27,7 @@ def sizeof_fmt(num: float, suffix: str = 'B') -> str:
         if abs(num) < 1024.0:
             return "%3.1f%s%s" % (num, unit, suffix)
         num /= 1024.0
+
     return "%.1f%s%s" % (num, 'Yi', suffix)
 
 
@@ -65,6 +66,7 @@ def reduce_mem_usage(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
     if verbose:
         print('Mem. usage decreased to {:5.2f} Mb ({:.1f}% reduction)'.format(
             end_mem, 100 * (start_mem - end_mem) / start_mem))
+
     return df
 
 
@@ -81,6 +83,7 @@ def merge_by_concat(df1: pd.DataFrame, df2: pd.DataFrame, merge_on: List[str]) -
     merged_gf = merged_gf.merge(df2, on=merge_on, how='left')
     new_columns = [column for column in list(merged_gf) if column not in merge_on]
     df1 = pd.concat([df1, merged_gf[new_columns]], axis=1)
+
     return df1
 
 
@@ -201,6 +204,7 @@ def df_parallelize_run(func: Callable, term_split: List[int], grid_df, n_cores, 
     df = pd.concat(pool.map(f, term_split), axis=1)
     pool.close()
     pool.join()
+    
     return df
 
 

@@ -94,6 +94,7 @@ def reduce_mem_usage(df, verbose=True):
     if verbose:
         print('Mem. usage decreased to {:5.2f} Mb ({:.1f}% reduction)'.format(
             end_mem, 100 * (start_mem - end_mem) / start_mem))
+
     return df
 
 
@@ -113,6 +114,7 @@ def prep_selling_prices(df):
     df["sell_price_roll_sd7"] = gr.transform(lambda x: x.rolling(7).std())
     df["sell_price_cumrel"] = (gr.shift(0) - gr.cummin()) / (1 + gr.cummax() - gr.cummin())
     df = reduce_mem_usage(df)
+
     return df
 
 
@@ -124,6 +126,7 @@ def reshape_sales(df, drop_d=None):
     df = df.melt(id_vars=["id", "item_id", "dept_id", "cat_id", "store_id", "state_id"],
                  var_name='d', value_name='demand')
     df = df.assign(d=df.d.str[2:].astype("int16"))
+
     return df
 
 
@@ -144,6 +147,7 @@ def preprocess_data(x, scaler=None):
         scaler = MinMaxScaler((0, 1))
         scaler.fit(x)
     x = scaler.transform(x)
+
     return x, scaler
 
 
@@ -152,12 +156,54 @@ def make_x(df, dense_cols, cat_cols):
     x = {"dense1": df[dense_cols].values}
     for _, value in enumerate(cat_cols):
         x[value] = df[[value]].values
+
     return x
+
+
+def create_model(dense_cols, et, x_train, y_train, base_epochs, ver, model_func) -> None:
+    # train
+    model = model_func(num_dense_features=len(dense_cols), lr=0.0001)
+
+    model.save_weights(models_dir + 'Keras_CatEmb_final3_et' + str(et) + 'ep' +
+                       str(base_epochs) + '_ver-' + ver + '.h5')
+
+    for j in range(4):
+        model.fit(x_train, y_train,
+                  batch_size=2 ** 14,
+                  epochs=1,
+                  shuffle=True,
+                  verbose=2
+                  )
+        model.save_weights(
+            models_dir + 'Keras_CatEmb_final3_et' + str(et) + 'ep' + str(base_epochs + 1 + j) + '_ver-' + ver + '.h5')
+
+    # del model
+    gc.collect()
 
 
 def train_model() -> None:
     warnings.filterwarnings('ignore')
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
+    # Vars
+    seed = 42  # We want all things
+    seed_everything(seed)  # to be as deterministic
+
+    # LIMITS and const
+    target = 'sales'  # Our target
+    p_horizon = 28  # Prediction horizon
+
+    version = '4'  # Our model version
+    start_train = 0  # 1186  # We can skip some rows (Nans/faster training)
+    end_train = 1941
+
+    # PATHS for Features
+    original = data_path  #
+    base_path = save_data_path + 'grid_part_1_eval.pkl'
+    price_path = save_data_path + 'grid_part_2_eval.pkl'
+    calendar_path = save_data_path + 'grid_part_3_eval.pkl'
+    lags_path = save_data_path + 'lags_df_28_eval.pkl'
+    mean_encoding_path = save_data_path + 'mean_encoding_df_eval.pkl'
 
     # Helper to load data by store ID
     # Read data
@@ -193,18 +239,9 @@ def train_model() -> None:
         'n_estimators': 1600,
         'boost_from_average': False,
         'verbose': -1,
-        'num_threads': 12
+        'num_threads': 12,
+        'seed': seed
     }
-
-    # Vars
-    # Our model version
-    seed = 42  # We want all things
-    seed_everything(seed)  # to be as deterministic
-    lgb_params['seed'] = seed  # as possible
-
-    # LIMITS and const
-    target = 'sales'  # Our target
-    p_horizon = 28  # Prediction horizon
 
     # FEATURES to remove
     remove_features = ['id', 'state_id', 'store_id',
@@ -213,14 +250,6 @@ def train_model() -> None:
     mean_features = ['enc_cat_id_mean', 'enc_cat_id_std',
                      'enc_dept_id_mean', 'enc_dept_id_std',
                      'enc_item_id_mean', 'enc_item_id_std']
-
-    # PATHS for Features
-    original = data_path  #
-    base_path = save_data_path + 'grid_part_1_eval.pkl'
-    price_path = save_data_path + 'grid_part_2_eval.pkl'
-    calendar_path = save_data_path + 'grid_part_3_eval.pkl'
-    lags_path = save_data_path + 'lags_df_28_eval.pkl'
-    mean_encoding_path = save_data_path + 'mean_encoding_df_eval.pkl'
 
     # STORES ids
     store_identifiers = pd.read_csv(original + 'sales_train_evaluation.csv')['store_id']
@@ -231,10 +260,6 @@ def train_model() -> None:
     for i in [1, 7, 14]:
         for j in [7, 14, 30, 60]:
             rows_split.append([i, j])
-
-    version = '4'
-    start_train = 0  # 1186  # We can skip some rows (Nans/faster training)
-    end_train = 1941
 
     grid_df, features_columns = get_data_by_store(store_identifiers[0], lag_features, mean_features,
                                                   remove_features, target, start_train, base_path,
@@ -253,6 +278,7 @@ def train_model() -> None:
         'WI_2': 1500,
         'WI_3': 1100
     }
+
     # Train Models
     for store_id in store_identifiers:
         print('Train', store_id)
@@ -268,12 +294,8 @@ def train_model() -> None:
         valid_mask = train_mask & (grid_df['d'] > (end_train - p_horizon))  # pseudo validation
         preds_mask = grid_df['d'] > (end_train - 100)
 
-        # Apply masks and save lgb dataset as bin
-        # to reduce memory spikes during data type conversions
-        # https://github.com/Microsoft/LightGBM/issues/1032
-        # "To avoid any conversions, you should always use np.float32"
-        # or save to bin before start training
-        # https://www.kaggle.com/c/talkingdata-adtracking-fraud-detection/discussion/53773
+        # Apply masks and save lgb dataset as bin to reduce memory spikes during data type conversions
+        # To avoid any conversions, we should always use np.float32 or save to bin before start training
         train_data = lgb.Dataset(grid_df[train_mask][features_columns],
                                  label=grid_df[train_mask][target])
         train_data.save_binary(lgbm_datasets_dir + 'train_data.bin')
@@ -290,9 +312,8 @@ def train_model() -> None:
         grid_df.to_pickle(lgbm_datasets_dir + 'test_' + store_id + '.pkl')
         del grid_df
 
-        # Launch seeder again to make lgb training 100% deterministic
-        # with each "code line" np.random "evolves"
-        # so we need (may want) to "reset" it
+        # Launch seeder again to make lgb training 100% deterministic with each "code line"
+        # np.random "evolves", so we need (may want) to "reset" it
         seed_everything(seed)
         estimator = lgb.train(lgb_params,
                               train_data,
@@ -302,18 +323,16 @@ def train_model() -> None:
 
         # Save model - it's not real '.bin' but a pickle file
         # estimator = lgb.Booster(model_file='model.txt')
-        # can only predict with the best iteration (or the saving iteration)
+        # Can only predict with the best iteration (or the saving iteration)
         # pickle.dump gives us more flexibility
         # like estimator.predict(TEST, num_iteration=100)
         # num_iteration - number of iteration want to predict with,
         # NULL or <= 0 means use best iteration
 
         model_name = models_dir + 'lgbm_finalmodel_' + store_id + '_v' + str(version) + '.bin'
-
         pickle.dump(estimator, open(model_name, 'wb'))
 
-        # Remove temporary files and objects
-        # to free some hdd space and ram memory
+        # Remove temporary files and objects to free some hdd space and ram memory
         os.remove(lgbm_datasets_dir + "train_data.bin")
         del train_data, valid_data, estimator
         gc.collect()
@@ -364,9 +383,7 @@ def train_model() -> None:
                 "rolling_mean_28_28",
                 "rolling_median_28_7",
                 "rolling_median_28_28",
-                "logd"
-
-                ]
+                "logd"]
     bool_cols = ["snap_CA", "snap_TX", "snap_WI"]
     dense_cols = num_cols + bool_cols
 
@@ -375,76 +392,21 @@ def train_model() -> None:
         sales[v] = sales[v].fillna(sales[v].median())
 
     gc.collect()
-    et = 1941
-
     base_epochs = 30
-    ver = 'EN1EN2Emb1'
-
+    et = 1941
     flag = (sales.d < et + 1) & (sales.d > et + 1 - 17 * 28)
-
     x_train = make_x(sales[flag], dense_cols, cat_cols)
+    x_train['dense1'], scaler1 = preprocess_data(x_train['dense1'])
     y_train = sales["demand"][flag].values
 
-    x_train['dense1'], scaler1 = preprocess_data(x_train['dense1'])
-
-    # train
-    model = create_model17EN1EN2emb1(num_dense_features=len(dense_cols), lr=0.0001)
-
-    model.save_weights(models_dir + 'Keras_CatEmb_final3_et' + str(et) + 'ep' +
-                       str(base_epochs) + '_ver-' + ver + '.h5')
-
-    for j in range(4):
-        model.fit(x_train, y_train,
-                  batch_size=2 ** 14,
-                  epochs=1,
-                  shuffle=True,
-                  verbose=2
-                  )
-        model.save_weights(
-            models_dir + 'Keras_CatEmb_final3_et' + str(et) + 'ep' + str(base_epochs + 1 + j) + '_ver-' + ver + '.h5')
+    # First Model
+    create_model(dense_cols, et, x_train, y_train,
+                 base_epochs, ver='EN1EN2Emb1', model_func=create_model17EN1EN2emb1)
 
     # Second Model
-    base_epochs = 30
-    ver = 'noEN1EN2'
-
-    # train
-    model = create_model17noEN1EN2(num_dense_features=len(dense_cols), lr=0.0001)
-
-    model.save_weights(models_dir + 'Keras_CatEmb_final3_et' + str(et) + 'ep' +
-                       str(base_epochs) + '_ver-' + ver + '.h5')
-
-    for j in range(4):
-        model.fit(x_train, y_train,
-                  batch_size=2 ** 14,
-                  epochs=1,
-                  shuffle=True,
-                  verbose=2
-                  )
-        model.save_weights(
-            models_dir + 'Keras_CatEmb_final3_et' + str(et) + 'ep' + str(base_epochs + 1 + j) + '_ver-' + ver + '.h5')
-
-    # del model
-    gc.collect()
+    create_model(dense_cols, et, x_train, y_train,
+                 base_epochs, ver='noEN1EN2', model_func=create_model17noEN1EN2)
 
     # Third Model
-    base_epochs = 30
-    ver = '17last'
-
-    # train
-    model = create_model17(num_dense_features=len(dense_cols), lr=0.0001)
-
-    model.save_weights(models_dir + 'Keras_CatEmb_final3_et' + str(et) + 'ep' +
-                       str(base_epochs) + '_ver-' + ver + '.h5')
-    
-    for j in range(4):
-        model.fit(x_train, y_train,
-                  batch_size=2 ** 14,
-                  epochs=1,
-                  shuffle=True,
-                  verbose=2
-                  )
-        model.save_weights(
-            models_dir + 'Keras_CatEmb_final3_et' + str(et) + 'ep' + str(base_epochs + 1 + j) + '_ver-' + ver + '.h5')
-
-    # del model
-    gc.collect()
+    create_model(dense_cols, et, x_train, y_train,
+                 base_epochs, ver='17last', model_func=create_model17)

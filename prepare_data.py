@@ -669,7 +669,7 @@ def prepare_datasets() -> None:
     # Make features test
     test_model = make_fast_test(grid_df, remove_features, lgb_params, end_train, target)
 
-    # Permutation importance Test - https://www.kaggle.com/dansbecker/permutation-importance
+    # Permutation importance Test
     # Let's create validation dataset and features
     features_columns = [col for col in list(grid_df) if col not in remove_features]
     validation_df = grid_df[grid_df['d'] > (end_train - 28)].reset_index(drop=True)

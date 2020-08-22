@@ -1,6 +1,7 @@
+""" Code file that is used to prepare datasets to be used in the predicting models"""
+
 import numpy as np
 import pandas as pd
-import os
 import time
 import psutil
 import random
@@ -8,17 +9,20 @@ import lightgbm as lgb
 from math import ceil
 from scipy import sparse
 from multiprocessing import Pool  # Multiprocess Runs
-from typing import Callable, List
+from typing import Any, Callable, Dict, List
 from sklearn.decomposition import PCA
 from functools import partial
 from utils import data_path, save_data_path, make_normal_lag
 
 
-def get_memory_usage():
-    return np.round(psutil.Process(os.getpid()).memory_info()[0] / 2. ** 30, 2)
-
-
-def sizeof_fmt(num, suffix='B'):
+def sizeof_fmt(num: float, suffix: str = 'B') -> str:
+    """ Get memory size with appropriate units
+    Args:
+        num: Memory in use
+        suffix: Provided suffix - By default B denoting Bytes
+    Returns:
+        String with memory used formatted to correct units
+    """
     for unit in ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi']:
         if abs(num) < 1024.0:
             return "%3.1f%s%s" % (num, unit, suffix)
@@ -26,7 +30,14 @@ def sizeof_fmt(num, suffix='B'):
     return "%.1f%s%s" % (num, 'Yi', suffix)
 
 
-def reduce_mem_usage(df, verbose=True):
+def reduce_mem_usage(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
+    """ Function that helps scale down memory usage of a data frame
+    Args:
+        df: Input data frame
+        verbose: Boolean value when set to True prints memory usage reduction
+    Returns:
+        Data Frame with reduced memory usage
+    """
     numerics = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
     start_mem = df.memory_usage().sum() / 1024 ** 2
     for column in df.columns:
@@ -57,8 +68,15 @@ def reduce_mem_usage(df, verbose=True):
     return df
 
 
-# Merging by concat to not lose dtypes
-def merge_by_concat(df1, df2, merge_on):
+def merge_by_concat(df1: pd.DataFrame, df2: pd.DataFrame, merge_on: List[str]) -> pd.DataFrame:
+    """ Merge dataframes by concat to not lose dtypes
+    Args:
+        df1: Left data frame to merge with
+        df2: Right data frame to merge
+        merge_on: List of column names to merge on
+    Return:
+        Merged data frame
+    """
     merged_gf = df1[merge_on]
     merged_gf = merged_gf.merge(df2, on=merge_on, how='left')
     new_columns = [column for column in list(merged_gf) if column not in merge_on]
@@ -66,14 +84,30 @@ def merge_by_concat(df1, df2, merge_on):
     return df1
 
 
-# RMSE
-def rmse(y, y_pred):
+def rmse(y: pd.Series, y_pred: pd.Series) -> float:
+    """ Function to calculate Root Mean Squared Error
+    Args:
+        y: Target values
+        y_pred: Predicted values
+    Returns:
+        Calculated RMSE
+    """
     return np.sqrt(np.mean(np.square(y - y_pred)))
 
 
-# Small function to make fast features tests
-# estimator = make_fast_test(grid_df). It will return lgb booster for future analysis
-def make_fast_test(df, remove_features, lgb_params, end_train, target):
+def make_fast_test(df: pd.DataFrame, remove_features: List[str], lgb_params: Dict[str, Any],
+                   end_train: int, target: str) -> lgb:
+    """ Function to speed up features tests. estimator = make_fast_test(grid_df).
+     Returns lgb booster for future analysis
+    Args:
+        df: Input data frame
+        remove_features: List of columns to be removed
+        lgb_params: Parameter dict of LGBM model
+        end_train: Integer that indicates last day in training set
+        target: Main target column name
+    Returns:
+        LGBM estimator
+    """
     feature_columns = [column for column in list(df) if column not in remove_features]
 
     tr_x, tr_y = df[df['d'] <= (end_train - 28)][feature_columns], df[df['d'] <= (end_train - 28)][target]
@@ -92,11 +126,20 @@ def make_fast_test(df, remove_features, lgb_params, end_train, target):
     return estimator
 
 
-# PCA
-# The main question here - can we have almost same rmse boost with less features less dimensionality?
-# Lets try PCA and make 7->3 dimensionality reduction
-# PCA is "unsupervised" learning and with shifted target we can be sure that we have no target leakage
-def make_pca(df, pca_col, n_days, seed, target):
+def make_pca(df: pd.DataFrame, pca_col: str, n_days: int, seed: int, target: str) -> pd.DataFrame:
+    """ Function that uses PCA and performs 7->3 dimensionality reduction.
+    The main question here - can we have almost same rmse boost with less features
+    and less dimensionality?
+    PCA is "unsupervised" learning and with shifted target we can be sure that we have no target leakage
+    Args:
+        df: Input data frame
+        pca_col: Row Identifier Column name
+        n_days: Number of days
+        seed: Our random seed for everything
+        target: Main target column name
+    Returns:
+        Data Frame with 3 columns after performing PCA
+    """
     print('PCA:', pca_col, n_days)
 
     # We don't need any other columns to make pca
@@ -141,19 +184,15 @@ def make_pca(df, pca_col, n_days, seed, target):
     return pca_df[persist_columns]
 
 
-# Lets test our normal Lags (7 days)
-# Some more info about lags here: https://www.kaggle.com/kyakovlev/m5-lags-features
-# Small helper to make lags creation faster
-# Multiprocessing Run
 def df_parallelize_run(func: Callable, term_split: List[int], grid_df, n_cores, target):
-    """ Function to parallelize runs. This function is NOT 'bulletproof',
+    """ Function to parallelize runs using multiprocessing. This function is NOT 'bulletproof',
     be careful and pass only correct types of variables.
     Args:
         func: Function to apply on each split
         term_split: Number of lags days
         grid_df: Grid DataFrame
         n_cores: Number of CPU cores being used
-        target: Target
+        target: Main target column name
     Returns:
     """
     num_cores = np.min([n_cores, len(term_split)])
@@ -165,8 +204,15 @@ def df_parallelize_run(func: Callable, term_split: List[int], grid_df, n_cores, 
     return df
 
 
-# Last non zero sale
-def find_last_sale(df, n_day, target):
+def find_last_sale(df, n_day, target) -> pd.Series:
+    """ Function to get last non zero sale
+    Args:
+        df: Input data frame
+        n_day: Number of days
+        target: Main target column name
+    Returns:
+        Returns a column of last non zero sales
+    """
     # Limit initial df
     ls_df = df[['id', 'd', target]]
 
@@ -187,7 +233,7 @@ def find_last_sale(df, n_day, target):
 
 
 def prepare_datasets() -> None:
-    # Baseline model
+    """ Main function to prepare the datasets to be used for model building"""
     # We will need some global VARS for future
     # FE Vars
     target = 'sales'  # Our main target

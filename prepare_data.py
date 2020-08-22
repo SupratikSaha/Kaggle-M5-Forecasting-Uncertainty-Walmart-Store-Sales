@@ -148,9 +148,8 @@ def make_pca(df: pd.DataFrame, pca_col: str, n_days: int, seed: int, target: str
     # We don't need any other columns to make pca
     pca_df = df[[pca_col, 'd', target]]
 
-    # If we are doing pca for other series "levels" we need to agg first
+    # If we are performing pca for a series "levels" that is not an 'id' we need to aggregate first
     if pca_col != 'id':
-        # merge_base = pca_df[[pca_col, 'd']]
         pca_df = pca_df.groupby([pca_col, 'd'])[target].agg(['sum']).reset_index()
         pca_df[target] = pca_df['sum']
         del pca_df['sum']
@@ -158,7 +157,7 @@ def make_pca(df: pd.DataFrame, pca_col: str, n_days: int, seed: int, target: str
     # Min/Max scaling
     pca_df[target] = pca_df[target] / pca_df[target].max()
 
-    # Making "lag" in old way (not parallel)
+    # Creating lags
     lag_days = [column for column in range(1, n_days + 1)]
     format_s = '{}_pca_' + pca_col + str(n_days) + '_{}'
     pca_df = pca_df.assign(**{
@@ -171,7 +170,6 @@ def make_pca(df: pd.DataFrame, pca_col: str, n_days: int, seed: int, target: str
     pca_df[pca_columns] = pca_df[pca_columns].fillna(0)
     pca = PCA(random_state=seed)
 
-    # You can use fit_transform here
     pca.fit(pca_df[pca_columns])
     pca_df[pca_columns] = pca.transform(pca_df[pca_columns])
 
@@ -189,7 +187,7 @@ def make_pca(df: pd.DataFrame, pca_col: str, n_days: int, seed: int, target: str
 
 def df_parallelize_run(func: Callable, term_split: List[int], grid_df, n_cores, target):
     """ Function to parallelize runs using multiprocessing. This function is NOT 'bulletproof',
-    be careful and pass only correct types of variables.
+    We need to be careful and pass only correct types of variables.
     Args:
         func: Function to apply on each split
         term_split: Number of lags days
@@ -204,7 +202,7 @@ def df_parallelize_run(func: Callable, term_split: List[int], grid_df, n_cores, 
     df = pd.concat(pool.map(f, term_split), axis=1)
     pool.close()
     pool.join()
-    
+
     return df
 
 
@@ -238,38 +236,34 @@ def find_last_sale(df, n_day, target) -> pd.Series:
 
 def prepare_datasets() -> None:
     """ Main function to prepare the datasets to be used for model building"""
-    # We will need some global VARS for future
-    # FE Vars
+    # Declaring recurring variables
     target = 'sales'  # Our main target
     end_train = 1941  # 1913 + 28  # Last day in train set
-    main_index = ['id', 'd']  # We can identify item by these columns
+    main_index = ['id', 'd']  # We can identify items by these columns
     n_cores = psutil.cpu_count()  # Available CPU cores
     seed = 42  # Our random seed for everything
     random.seed(seed)  # to make all tests "deterministic"
     np.random.seed(seed)
 
     # Load Data
-    print('Load Main Data')
-
     # Reading all  data without any limitations and data type modification
+    print('Load Main Data')
     train_df = pd.read_csv(data_path + 'sales_train_evaluation.csv')
     prices_df = pd.read_csv(data_path + 'sell_prices.csv')
     calendar_df = pd.read_csv(data_path + 'calendar.csv')
 
     # Make Grid
-    print('Create Grid')
-
     # We can transform horizontal representation to vertical "view"
     # Our "index" will be 'id','item_id','dept_id','cat_id','store_id','state_id'
     # and labels are 'd_' columns
-
+    print('Create Grid')
     index_columns = ['id', 'item_id', 'dept_id', 'cat_id', 'store_id', 'state_id']
     grid_df = pd.melt(train_df,
                       id_vars=index_columns,
                       var_name='d',
                       value_name=target)
 
-    # If we look on train_df we se that we don't have a lot of training rows
+    # If we look at train_df we see that we don't have a lot of training rows
     # but each day can provide more train data
     print('Train rows:', len(train_df), len(grid_df))
 
@@ -287,12 +281,9 @@ def prepare_datasets() -> None:
 
     # Remove some temporary DFs
     del temp_df, add_grid
-
     # We will not need original train_df anymore and can remove it
     del train_df
 
-    # You don't have to use df = df construction, you can use inplace=True instead.
-    # like this - grid_df.reset_index(drop=True, inplace=True)
     # Let's check our memory usage
     print("{:>20}: {:>8}".format('Original grid_df', sizeof_fmt(grid_df.memory_usage(index=True).sum())))
 
@@ -307,9 +298,9 @@ def prepare_datasets() -> None:
     # Product Release date
     print('Release week')
 
-    # It seems that leading zero values in each train_df item row are not real 0 sales but mean
-    # absence for the item in the store we can safe some memory by removing such zeros
-    # Prices are set by week so it we will have not very accurate release week
+    # It seems that leading zero values in each train_df item row are not real 0 sales but they mean
+    # absence of the item in the store. We can save some memory by removing such zeros
+    # Prices are set by week so we won't have a very accurate release week
     release_df = prices_df.groupby(['store_id', 'item_id'])['wm_yr_wk'].agg(['min']).reset_index()
     release_df.columns = ['store_id', 'item_id', 'release']
 
@@ -317,14 +308,11 @@ def prepare_datasets() -> None:
     grid_df = merge_by_concat(grid_df, release_df, ['store_id', 'item_id'])
     del release_df
 
-    # We want to remove some "zeros" rows
-    # from grid_df
-    # to do it we need wm_yr_wk column
-    # let's merge partly calendar_df to have it
+    # We want to remove some "zero" rows from grid_df. To do it we need wm_yr_wk column
+    # Let's merge partly calendar_df to have it
     grid_df = merge_by_concat(grid_df, calendar_df[['wm_yr_wk', 'd']], ['d'])
 
-    # Now we can cutoff some rows
-    # and safe memory
+    # Now we can cutoff some rows and save memory
     grid_df = grid_df[grid_df['wm_yr_wk'] >= grid_df['release']]
     grid_df = grid_df.reset_index(drop=True)
 
@@ -344,10 +332,8 @@ def prepare_datasets() -> None:
 
     # Save part 1
     print('Save Part 1')
-
     # We have our BASE grid ready and can save it as pickle file for future use (model training)
     grid_df.to_pickle(save_data_path + 'grid_part_1_eval.pkl')
-
     print('Size:', grid_df.shape)
 
     # Prices
@@ -366,13 +352,13 @@ def prepare_datasets() -> None:
     prices_df['price_nunique'] = prices_df.groupby(['store_id', 'item_id'])['sell_price'].transform('nunique')
     prices_df['item_nunique'] = prices_df.groupby(['store_id', 'sell_price'])['item_id'].transform('nunique')
 
-    # I would like some "rolling" aggregations but would like months and years as "window"
+    # We would like some "rolling" aggregations but would like months and years as "window"
     calendar_prices = calendar_df[['wm_yr_wk', 'month', 'year']]
     calendar_prices = calendar_prices.drop_duplicates(subset=['wm_yr_wk'])
     prices_df = prices_df.merge(calendar_prices[['wm_yr_wk', 'month', 'year']], on=['wm_yr_wk'], how='left')
     del calendar_prices
 
-    # Now we can add price "momentum" (some sort of) Shifted by week, by month mean and by year mean
+    # Now we can add price "momentum"; shifted by week, by month mean and by year mean
     prices_df['price_momentum'] = prices_df['sell_price'] / prices_df.groupby(['store_id', 'item_id'])[
         'sell_price'].transform(lambda x: x.shift(1))
     prices_df['price_momentum_m'] = prices_df['sell_price'] / prices_df.groupby(['store_id', 'item_id', 'month'])[
@@ -395,7 +381,6 @@ def prepare_datasets() -> None:
     # Save part 2
     grid_df.to_pickle(save_data_path + 'grid_part_2_eval.pkl')
     print('Size:', grid_df.shape)
-
     # We don't need prices_df anymore
     del prices_df
 
@@ -448,10 +433,8 @@ def prepare_datasets() -> None:
 
     # Save part 3 (Dates)
     print('Save part 3')
-
     grid_df.to_pickle(save_data_path + 'grid_part_3_eval.pkl')
     print('Size:', grid_df.shape)
-
     # We don't need calendar_df anymore
     del calendar_df
     del grid_df
@@ -464,7 +447,6 @@ def prepare_datasets() -> None:
     # Remove 'wm_yr_wk' as test values are not in train set
     del grid_df['wm_yr_wk']
     grid_df.to_pickle(save_data_path + 'grid_part_1_eval.pkl')
-
     del grid_df
 
     # Summary
@@ -478,35 +460,31 @@ def prepare_datasets() -> None:
     print("{:>20}: {:>8}".format('Full Grid', sizeof_fmt(grid_df.memory_usage(index=True).sum())))
     print('Size:', grid_df.shape)
 
-    # 2.5GiB + is is still too big to train our model (on kaggle with its memory limits)
-    # and we don't have lag features yet. But what if we can train by state_id or shop_id?
+    # Data Frame is still too big to train our model and we don't have lag features yet.
+    # But what if we can train by state_id or shop_id?
     state_id = 'CA'
     grid_df = grid_df[grid_df['state_id'] == state_id]
     print("{:>20}: {:>8}".format('Full Grid', sizeof_fmt(grid_df.memory_usage(index=True).sum())))
-    # Full Grid:   1.2GiB
 
     store_id = 'CA_1'
     grid_df = grid_df[grid_df['store_id'] == store_id]
     print("{:>20}: {:>8}".format('Full Grid', sizeof_fmt(grid_df.memory_usage(index=True).sum())))
-    # Full Grid: 321.2MiB
     # Seems its good enough now.
 
     # Final list of features
     grid_df.info()
 
-    # LAG FEATURES
-    # We will need only train dataset to show lags concept
+    # LAG FEATURES - We will need only train dataset to show lags concept
     train_df = pd.read_csv(data_path + 'sales_train_evaluation.csv')
 
     # To make all calculations faster we will limit dataset by 'CA' state
     train_df = train_df[train_df['state_id'] == 'CA']
 
     # Data Representation
-    # Let's check our shape
+    # Let's check shape
     print('Shape', train_df.shape)
 
     # Horizontal representation
-
     # If we feed directly this data to model our label will be values in column 'd_1913'
     # all other columns will be our "features". In lag terminology all d_1->d_1912 columns
     # are our lag features (target values in previous time period)
@@ -514,9 +492,8 @@ def prepare_datasets() -> None:
     # Note: here and after all numbers are limited to 'CA' state
 
     # Vertical representation
-    # On other hand we can think of d_ columns as additional labels and can significantly
+    # On the other hand we can think of d_ columns as additional labels and can significantly
     # scale up our training set to 23330948 rows
-
     # Good thing that our model will have greater input for training
     # Bad thing that we are losing lags that we had in horizontal representation and
     # also new data set consumes much more memory
@@ -535,7 +512,7 @@ def prepare_datasets() -> None:
 
     # Lags creation
     # We have several "code" solutions here. As our dataset is already sorted by d values
-    # we can simply shift() values also we have to keep in mind that
+    # we can simply shift() values but we have to keep in mind that
     # we need to aggregate values on 'id' level
 
     # group and shift in loop
@@ -547,24 +524,11 @@ def prepare_datasets() -> None:
         temp_df['lag_' + str(i)] = temp_df.groupby(['id'])[target].transform(lambda x: x.shift(i))
 
     print('%0.2f min: Time for loops' % ((time.time() - start_time) / 60))
-
-    # Or same in "compact" manner
-    # lag_days = [col for col in range(1, 8)]
-    # temp_df = train_df[['id', 'd', target]]
-    #
-    # start_time = time.time()
-    # temp_df = temp_df.assign(**{
-    #     '{}_lag_{}'.format(col, l): temp_df.groupby(['id'])[col].transform(lambda x: x.shift(l))
-    #     for l in lag_days
-    #     for col in [target]
-    # })
-
     print('%0.2f min: Time for bulk shift' % ((time.time() - start_time) / 60))
 
     # Rolling lags
-    # We restored some day sales values from horizontal representation
-    # as lag features but just few of them (last 7 days or less)
-    # because of memory limits we can't have many lag features
+    # We restored some day sales values from horizontal representation as lag features but just few
+    # of them (last 7 days or less). Because of memory limits we can't have many lag features
     # How we can get additional information from other days?
 
     # Rolling aggregations
@@ -580,28 +544,28 @@ def prepare_datasets() -> None:
             lambda x: x.shift(1).rolling(i).std())
 
     # lambda x: x.shift(1)
-    # 1 day shift will serve only to predict day 1914 for other days you have to shift PREDICT_DAY-1913
+    # 1 day shift will serve only to predict day 1914. For other days you have to shift PREDICT_DAY-1913
     # Such aggregations will help us to restore at least part of the information for our model
-    # and out of 14+30+60->104 columns we can have just 6 with valuable information (hope it is sufficient)
-    # you can also aggregate by max/skew/median etc also you can try other rolling periods 180,365 etc
+    # and out of 14+30+60->104 columns we can have just 6 with valuable information
+    # We can hope that it is sufficient. We can also aggregate by max/skew/median etc
+    # We can try other rolling periods like 180,365 etc
     print('%0.2f min: Time for loop' % ((time.time() - start_time) / 60))
 
     # The result
     print(temp_df[temp_df['id'] == 'HOBBIES_1_002_CA_1_evaluation'].iloc[:20])
 
-    # Same for NaNs values - it's normal because there is no data for
+    # Same for NaN values - it's normal because there is no data for
     # 0*(rolling_period),-1*(rolling_period),-2*(rolling_period)
     # Memory usage. Let's check our memory usage
     print("{:>20}: {:>8}".format('Original rolling df', sizeof_fmt(temp_df.memory_usage(index=True).sum())))
 
     # Can we decrease it?
-    # 1. if our dataset are aligned by index you don't need 'id' 'd' 'sales' columns
+    # 1. if our dataset are aligned by index we don't need 'id' 'd' 'sales' columns
     temp_df = temp_df.iloc[:, 3:]
     print("{:>20}: {:>8}".format('Values rolling df', sizeof_fmt(temp_df.memory_usage(index=True).sum())))
 
-    # Can we make it even smaller? Carefully change data type and/or
-    # use sparse matrix to minify 0s. Also note that lgbm accepts matrices as input
-    # that is good for memory reduction
+    # Can we make it even smaller? Carefully change data type and/or use sparse matrix to minify 0s.
+    # Also note that lgbm accepts matrices as input, that is good for memory reduction
     temp_matrix = sparse.csr_matrix(temp_df)
 
     # restore to df
@@ -612,9 +576,7 @@ def prepare_datasets() -> None:
     # Remove old objects
     del temp_df, train_df, temp_matrix, temp_matrix_restored
 
-    # Apply on grid_df
-    # lets read grid from https://www.kaggle.com/kyakovlev/m5-simple-fe
-    # to be sure that our grids are aligned by index
+    # Apply on grid_df - lets read grid and be sure that our grids are aligned by index
     grid_df = pd.read_pickle(save_data_path + 'grid_part_1_eval.pkl')
 
     # We need only 'id','d','sales' to make lags and rollings
@@ -699,12 +661,10 @@ def prepare_datasets() -> None:
         'verbose': -1,
     }
 
-    # Make baseline model
-    # baseline_model = make_fast_test(grid_df, remove_features, lgb_params, end_train, target)
-
     # Launch parallel lag creation and "append" to our grid
     lags_split = [col for col in range(1, 1 + 7)]
-    grid_df = pd.concat([grid_df, df_parallelize_run(make_normal_lag, lags_split, grid_df, n_cores, target)], axis=1)
+    grid_df = pd.concat([grid_df, df_parallelize_run(make_normal_lag, lags_split,
+                                                     grid_df, n_cores, target)], axis=1)
 
     # Make features test
     test_model = make_fast_test(grid_df, remove_features, lgb_params, end_train, target)
@@ -714,7 +674,7 @@ def prepare_datasets() -> None:
     features_columns = [col for col in list(grid_df) if col not in remove_features]
     validation_df = grid_df[grid_df['d'] > (end_train - 28)].reset_index(drop=True)
 
-    # Make normal prediction with our model and save score
+    # Create normal predictions with our model and save score
     validation_df['preds'] = test_model.predict(validation_df[features_columns])
     base_score = rmse(validation_df[target], validation_df['preds'])
     print('Standard RMSE', base_score)
@@ -726,7 +686,8 @@ def prepare_datasets() -> None:
         temp_df = validation_df.copy()
 
         # Error appears here if we have "categorical" features and can't
-        # do np.random.permutation without disrupt categories, so we need to check if feature is numerical
+        # do np.random.permutation without disrupt categories, so we need to check
+        # if feature is numerical
         if temp_df[col].dtypes.name != 'category':
             temp_df[col] = np.random.permutation(temp_df[col].values)
             temp_df['preds'] = test_model.predict(temp_df[features_columns])
@@ -790,20 +751,12 @@ def prepare_datasets() -> None:
         grid_df = grid_df.merge(temp_df, on=[col, 'store_id'], how='left')
         del temp_df
 
-    # Remove test features
-    # keep_cols = [col for col in list(grid_df) if '_encoding_' not in col]
-    # grid_df = grid_df[keep_cols]
-
     # Bad thing is that for some items we are using past and future values.
-    # But we are looking for "categorical" similarity on a "long run". So future here is not a big problem.
-    # Find last non zero. Need some "dances" to fit in memory limit with groupers
-    # grid_df = pd.concat([grid_df, find_last_sale(grid_df, 1, target)], axis=1)
+    # But we are looking for "categorical" similarity on a "long run".
+    # So future here is not a big problem. We need to find last non zero values.
+    # Need some manipulation to fit in memory limit with groupers
 
-    # Make features test
-    # test_model = make_fast_test(grid_df, remove_features, lgb_params, end_train, target)
-
-    # Apply on grid_df. Lets read grid from https://www.kaggle.com/kyakovlev/m5-simple-fe
-    # to be sure that our grids are aligned by index
+    # Apply on grid_df. Lets read grid and make sure that our grids are aligned by index
     grid_df = pd.read_pickle(save_data_path + 'grid_part_1_eval.pkl')
     grid_df[target][grid_df['d'] > (1913 - 28)] = np.nan
     base_cols = list(grid_df)

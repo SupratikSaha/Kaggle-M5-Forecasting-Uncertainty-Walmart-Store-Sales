@@ -146,7 +146,8 @@ def make_pca(df: pd.DataFrame, pca_col: str, n_days: int, seed: int, target: str
     return pca_df[persist_columns]
 
 
-def df_parallelize_run(func: Callable, term_split: List[int], grid_df, n_cores, target):
+def df_parallelize_run(func: Callable, term_split: List[Any], grid_df: pd.DataFrame,
+                       n_cores: int, target: str):
     """ Function to parallelize runs using multiprocessing. This function is NOT 'bulletproof',
     We need to be careful and pass only correct types of variables.
     Args:

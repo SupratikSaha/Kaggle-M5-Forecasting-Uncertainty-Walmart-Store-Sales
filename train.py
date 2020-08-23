@@ -11,7 +11,7 @@ import pandas as pd
 import lightgbm as lgb
 from typing import Callable, Dict, List, Tuple
 from sklearn.preprocessing import OrdinalEncoder, MinMaxScaler
-from keras_models import create_model17, create_model17_no_en1_en2
+from keras_models import keras_model, keras_model_no_en1_en2
 from utils import data_path, save_data_path, models_dir, lgbm_datasets_dir, reduce_mem_usage
 
 
@@ -431,12 +431,12 @@ def train_model() -> None:
 
     # First Model
     create_model(dense_cols, end_train, x_train, y_train,
-                 ver='EN1EN2Emb1', embedding=2, model_func=create_model17)
+                 ver='With_Emb1', embedding=2, model_func=keras_model)
 
     # Second Model
     create_model(dense_cols, end_train, x_train, y_train,
-                 ver='noEN1EN2', embedding=2, model_func=create_model17_no_en1_en2)
+                 ver='No_EN1_EN2', embedding=2, model_func=keras_model_no_en1_en2)
 
     # Third Model
     create_model(dense_cols, end_train, x_train, y_train,
-                 ver='17last', embedding=1, model_func=create_model17)
+                 ver='Original', embedding=1, model_func=keras_model)

@@ -9,19 +9,62 @@ import warnings
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
+from typing import Callable, Dict, List, Tuple
 from sklearn.preprocessing import OrdinalEncoder, MinMaxScaler
 from keras_models import create_model17EN1EN2emb1, create_model17noEN1EN2, create_model17
-from utils import data_path, save_data_path, models_dir, lgbm_datasets_dir
+from utils import data_path, save_data_path, models_dir, lgbm_datasets_dir, reduce_mem_usage
 
 
-# Seeder :seed to make all processes deterministic     # type: int
-def seed_everything(seed=0):
+def seed_everything(seed: int = 0):
+    """ Seeder function to make all processes deterministic
+    Args:
+        seed: seed value
+    """
     random.seed(seed)
     np.random.seed(seed)
 
 
-def get_data_by_store(store, lag_features, mean_features, remove_features, target, start_train,
-                      base_path, price_path, calendar_path, mean_encoding_path, lags_path):
+def get_data_by_store(store: int, target: str) -> Tuple[pd.DataFrame, List[str]]:
+    """ Helper function to load data by store ID
+    Args:
+        store: Store Id whose data is to be loaded
+        target: Main target column name
+    Returns:
+        Tuple of data read for the store in DataFrame and a list of features in the DataFrame
+    """
+    base_path = save_data_path + 'grid_part_1_eval.pkl'
+    price_path = save_data_path + 'grid_part_2_eval.pkl'
+    calendar_path = save_data_path + 'grid_part_3_eval.pkl'
+    mean_encoding_path = save_data_path + 'mean_encoding_df_eval.pkl'
+    lags_path = save_data_path + 'lags_df_28_eval.pkl'
+
+    start_train = 0  # We can skip some rows (Nans/faster training)
+
+    # FEATURES to remove
+    remove_features = ['id', 'state_id', 'store_id',
+                       'date', 'wm_yr_wk', 'd', target]
+
+    mean_features = ['enc_cat_id_mean', 'enc_cat_id_std',
+                     'enc_dept_id_mean', 'enc_dept_id_std',
+                     'enc_item_id_mean', 'enc_item_id_std']
+
+    # Read data
+    lag_features = [
+        'sales_lag_28', 'sales_lag_29', 'sales_lag_30', 'sales_lag_31',
+        'sales_lag_32', 'sales_lag_33', 'sales_lag_34', 'sales_lag_35',
+        'sales_lag_36', 'sales_lag_37', 'sales_lag_38',
+        'sales_lag_39', 'sales_lag_40', 'sales_lag_41', 'sales_lag_42',
+        'rolling_mean_7', 'rolling_mean_14',
+        'rolling_mean_30', 'rolling_std_30', 'rolling_mean_60',
+        'rolling_std_60', 'rolling_mean_180', 'rolling_std_180',
+        'rolling_mean_tmp_1_7', 'rolling_mean_tmp_1_14',
+        'rolling_mean_tmp_1_30', 'rolling_mean_tmp_1_60',
+        'rolling_mean_tmp_7_7', 'rolling_mean_tmp_7_14',
+        'rolling_mean_tmp_7_30', 'rolling_mean_tmp_7_60',
+        'rolling_mean_tmp_14_7', 'rolling_mean_tmp_14_14',
+        'rolling_mean_tmp_14_30', 'rolling_mean_tmp_14_60'
+    ]
+
     # Read and contact basic feature
     df = pd.concat([pd.read_pickle(base_path),
                     pd.read_pickle(price_path).iloc[:, 2:],
@@ -53,52 +96,30 @@ def get_data_by_store(store, lag_features, mean_features, remove_features, targe
     return df, features
 
 
-# Recombine Test set after training
-def get_base_test(store_identifiers):
+def get_base_test(store_identifiers: List[int]) -> pd.DataFrame():
+    """ Function to recombine Test set after training
+    Args:
+        store_identifiers: List of store Ids
+    Returns:
+        Returns combined train and test data
+    """
     base_test = pd.DataFrame()
 
     for storeId in store_identifiers:
-        temp_df = pd.read_pickle('lgbtrainings/test_' + storeId + '.pkl')
+        temp_df = pd.read_pickle('lgbtrainings/test_' + str(storeId) + '.pkl')
         temp_df['store_id'] = storeId
         base_test = pd.concat([base_test, temp_df]).reset_index(drop=True)
 
     return base_test
 
 
-# KERAS
-def reduce_mem_usage(df, verbose=True):
-    numerics = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
-    start_mem = df.memory_usage().sum() / 1024 ** 2
-    for col in df.columns:
-        col_type = df[col].dtypes
-        if col_type in numerics:
-            c_min = df[col].min()
-            c_max = df[col].max()
-            if str(col_type)[:3] == 'int':
-                if c_min > np.iinfo(np.int8).min and c_max < np.iinfo(np.int8).max:
-                    df[col] = df[col].astype(np.int8)
-                elif c_min > np.iinfo(np.int16).min and c_max < np.iinfo(np.int16).max:
-                    df[col] = df[col].astype(np.int16)
-                elif c_min > np.iinfo(np.int32).min and c_max < np.iinfo(np.int32).max:
-                    df[col] = df[col].astype(np.int32)
-                elif c_min > np.iinfo(np.int64).min and c_max < np.iinfo(np.int64).max:
-                    df[col] = df[col].astype(np.int64)
-            else:
-                if c_min > np.finfo(np.float16).min and c_max < np.finfo(np.float16).max:
-                    df[col] = df[col].astype(np.float16)
-                elif c_min > np.finfo(np.float32).min and c_max < np.finfo(np.float32).max:
-                    df[col] = df[col].astype(np.float32)
-                else:
-                    df[col] = df[col].astype(np.float64)
-    end_mem = df.memory_usage().sum() / 1024 ** 2
-    if verbose:
-        print('Mem. usage decreased to {:5.2f} Mb ({:.1f}% reduction)'.format(
-            end_mem, 100 * (start_mem - end_mem) / start_mem))
-
-    return df
-
-
-def prep_calendar(df):
+def prep_calendar(df: pd.DataFrame) -> pd.DataFrame:
+    """ Pre process calendar data
+    Args:
+        df: Calendar data loaded in a DataFrame
+    Returns:
+        Pre processed calendar data
+    """
     df = df.drop(["date", "weekday"], axis=1)
     df = df.assign(d=df.d.str[2:].astype(int))
     df = df.fillna("missing")
@@ -108,7 +129,13 @@ def prep_calendar(df):
     return df
 
 
-def prep_selling_prices(df):
+def prep_selling_prices(df: pd.DataFrame) -> pd.DataFrame:
+    """ Pre process selling prices data
+    Args:
+        df: Selling prices data loaded in a DataFrame
+    Returns:
+        Pre processed selling prices data
+    """
     gr = df.groupby(["store_id", "item_id"])["sell_price"]
     df["sell_price_rel_diff"] = gr.pct_change()
     df["sell_price_roll_sd7"] = gr.transform(lambda x: x.rolling(7).std())
@@ -118,7 +145,14 @@ def prep_selling_prices(df):
     return df
 
 
-def reshape_sales(df, drop_d=None):
+def reshape_sales(df: pd.DataFrame, drop_d: int = None) -> pd.DataFrame:
+    """ Function to reshape sales data
+    Args:
+        df: Sales data loaded in a data frame
+        drop_d: Number of sales columns that are to be dropped
+    Returns:
+        Reshaped sales data
+    """
     if drop_d is not None:
         df = df.drop(["d_" + str(val + 1) for val in range(drop_d)], axis=1)
     df = df.assign(id=df.id.str.replace("_validation", ""))
@@ -130,7 +164,13 @@ def reshape_sales(df, drop_d=None):
     return df
 
 
-def prep_sales(df):
+def prep_sales(df: pd.DataFrame) -> pd.DataFrame:
+    """ Pre process sales data
+    Args:
+        df: Sales data loaded in a data frame
+    Returns:
+        Pre processed sales data
+    """
     df['lag_t28'] = df.groupby(['id'])['demand'].transform(lambda x: x.shift(28))
     df['rolling_mean_28_7'] = df.groupby(['id'])['demand'].transform(lambda x: x.shift(28).rolling(7).mean())
     df['rolling_mean_28_28'] = df.groupby(['id'])['demand'].transform(lambda x: x.shift(28).rolling(28).mean())
@@ -142,7 +182,15 @@ def prep_sales(df):
     return df
 
 
-def preprocess_data(x, scaler=None):
+def preprocess_data(x: int, scaler: Callable = None) -> Tuple[int, Callable]:
+    """ Function to pre process numerical input data by scaling.
+    Uses MinMaxScaler by default
+    Args:
+        x: Input numerical features of training data
+        scaler: Scaler function used to pre process numerical input data
+    Returns:
+        Returns tuple of Scaled numerical input data and the scaler used
+    """
     if not scaler:
         scaler = MinMaxScaler((0, 1))
         scaler.fit(x)
@@ -151,8 +199,16 @@ def preprocess_data(x, scaler=None):
     return x, scaler
 
 
-# Input dict for training with a dense array and separate inputs for each embedding input
-def make_x(df, dense_cols, cat_cols):
+def make_x(df: pd.DataFrame, dense_cols: List[str], cat_cols: List[str]) -> Dict[str, int]:
+    """ Create an input dictionary for training as a dense array
+    and separate inputs for each embedding input
+    Args:
+        df: Input training data in a data frame
+        dense_cols: List of numerical and boolean columns
+        cat_cols: List of categorical columns
+    Returns:
+         Returns training data as a dictionary
+    """
     x = {"dense1": df[dense_cols].values}
     for _, value in enumerate(cat_cols):
         x[value] = df[[value]].values
@@ -160,11 +216,22 @@ def make_x(df, dense_cols, cat_cols):
     return x
 
 
-def create_model(dense_cols, et, x_train, y_train, base_epochs, ver, model_func) -> None:
+def create_model(dense_cols, end_train: int, x_train: Dict[str, int], y_train: pd.Series,
+                 ver, model_func: Callable) -> None:
+    """ Loads the requested model, trains on training data and saves model weights
+    Args:
+        dense_cols: List of numerical and boolean columns
+        end_train: Last training data day in data
+        x_train: Input training features in a dictionary
+        y_train: Input training labels
+        ver: Model version
+        model_func: Model function used to train the data
+    """
     # train
+    base_epochs = 30
     model = model_func(num_dense_features=len(dense_cols), lr=0.0001)
 
-    model.save_weights(models_dir + 'Keras_CatEmb_final3_et' + str(et) + 'ep' +
+    model.save_weights(models_dir + 'Keras_CatEmb_final3_et' + str(end_train) + 'ep' +
                        str(base_epochs) + '_ver-' + ver + '.h5')
 
     for j in range(4):
@@ -175,13 +242,15 @@ def create_model(dense_cols, et, x_train, y_train, base_epochs, ver, model_func)
                   verbose=2
                   )
         model.save_weights(
-            models_dir + 'Keras_CatEmb_final3_et' + str(et) + 'ep' + str(base_epochs + 1 + j) + '_ver-' + ver + '.h5')
+            models_dir + 'Keras_CatEmb_final3_et' + str(end_train) + 'ep' +
+            str(base_epochs + 1 + j) + '_ver-' + ver + '.h5')
 
     # del model
     gc.collect()
 
 
 def train_model() -> None:
+    """ Function to pre-process training data and train using pre built models"""
     warnings.filterwarnings('ignore')
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
@@ -194,34 +263,10 @@ def train_model() -> None:
     p_horizon = 28  # Prediction horizon
 
     version = '4'  # Our model version
-    start_train = 0  # 1186  # We can skip some rows (Nans/faster training)
     end_train = 1941
 
     # PATHS for Features
-    original = data_path  #
-    base_path = save_data_path + 'grid_part_1_eval.pkl'
-    price_path = save_data_path + 'grid_part_2_eval.pkl'
-    calendar_path = save_data_path + 'grid_part_3_eval.pkl'
-    lags_path = save_data_path + 'lags_df_28_eval.pkl'
-    mean_encoding_path = save_data_path + 'mean_encoding_df_eval.pkl'
-
-    # Helper to load data by store ID
-    # Read data
-    lag_features = [
-        'sales_lag_28', 'sales_lag_29', 'sales_lag_30', 'sales_lag_31',
-        'sales_lag_32', 'sales_lag_33', 'sales_lag_34', 'sales_lag_35',
-        'sales_lag_36', 'sales_lag_37', 'sales_lag_38',
-        'sales_lag_39', 'sales_lag_40', 'sales_lag_41', 'sales_lag_42',
-        'rolling_mean_7', 'rolling_mean_14',
-        'rolling_mean_30', 'rolling_std_30', 'rolling_mean_60',
-        'rolling_std_60', 'rolling_mean_180', 'rolling_std_180',
-        'rolling_mean_tmp_1_7', 'rolling_mean_tmp_1_14',
-        'rolling_mean_tmp_1_30', 'rolling_mean_tmp_1_60',
-        'rolling_mean_tmp_7_7', 'rolling_mean_tmp_7_14',
-        'rolling_mean_tmp_7_30', 'rolling_mean_tmp_7_60',
-        'rolling_mean_tmp_14_7', 'rolling_mean_tmp_14_14',
-        'rolling_mean_tmp_14_30', 'rolling_mean_tmp_14_60'
-    ]
+    original = data_path
 
     # Model params
     lgb_params = {
@@ -243,14 +288,6 @@ def train_model() -> None:
         'seed': seed
     }
 
-    # FEATURES to remove
-    remove_features = ['id', 'state_id', 'store_id',
-                       'date', 'wm_yr_wk', 'd', target]
-
-    mean_features = ['enc_cat_id_mean', 'enc_cat_id_std',
-                     'enc_dept_id_mean', 'enc_dept_id_std',
-                     'enc_item_id_mean', 'enc_item_id_std']
-
     # STORES ids
     store_identifiers = pd.read_csv(original + 'sales_train_evaluation.csv')['store_id']
     store_identifiers = list(store_identifiers.unique())
@@ -261,10 +298,7 @@ def train_model() -> None:
         for j in [7, 14, 30, 60]:
             rows_split.append([i, j])
 
-    grid_df, features_columns = get_data_by_store(store_identifiers[0], lag_features, mean_features,
-                                                  remove_features, target, start_train, base_path,
-                                                  price_path, calendar_path, mean_encoding_path,
-                                                  lags_path)
+    grid_df, features_columns = get_data_by_store(store_identifiers[0], target)
 
     rounds_per_store1 = {
         'CA_1': 700,
@@ -285,10 +319,7 @@ def train_model() -> None:
         lgb_params['n_estimators'] = rounds_per_store1[store_id]
 
         # Get grid for current store
-        grid_df, features_columns = get_data_by_store(store_id, lag_features, mean_features,
-                                                      remove_features, target, start_train, base_path,
-                                                      price_path, calendar_path, mean_encoding_path,
-                                                      lags_path)
+        grid_df, features_columns = get_data_by_store(store_id, target)
 
         train_mask = grid_df['d'] <= end_train
         valid_mask = train_mask & (grid_df['d'] > (end_train - p_horizon))  # pseudo validation
@@ -392,21 +423,19 @@ def train_model() -> None:
         sales[v] = sales[v].fillna(sales[v].median())
 
     gc.collect()
-    base_epochs = 30
-    et = 1941
-    flag = (sales.d < et + 1) & (sales.d > et + 1 - 17 * 28)
+    flag = (sales.d < end_train + 1) & (sales.d > end_train + 1 - 17 * 28)
     x_train = make_x(sales[flag], dense_cols, cat_cols)
     x_train['dense1'], scaler1 = preprocess_data(x_train['dense1'])
     y_train = sales["demand"][flag].values
 
     # First Model
-    create_model(dense_cols, et, x_train, y_train,
-                 base_epochs, ver='EN1EN2Emb1', model_func=create_model17EN1EN2emb1)
+    create_model(dense_cols, end_train, x_train, y_train,
+                 ver='EN1EN2Emb1', model_func=create_model17EN1EN2emb1)
 
     # Second Model
-    create_model(dense_cols, et, x_train, y_train,
-                 base_epochs, ver='noEN1EN2', model_func=create_model17noEN1EN2)
+    create_model(dense_cols, end_train, x_train, y_train,
+                 ver='noEN1EN2', model_func=create_model17noEN1EN2)
 
     # Third Model
-    create_model(dense_cols, et, x_train, y_train,
-                 base_epochs, ver='17last', model_func=create_model17)
+    create_model(dense_cols, end_train, x_train, y_train,
+                 ver='17last', model_func=create_model17)

@@ -1,4 +1,4 @@
-""" Code for training the prediction model"""
+""" Code for training the prediction model """
 
 import os
 import gc
@@ -11,7 +11,7 @@ import pandas as pd
 import lightgbm as lgb
 from typing import Callable, Dict, List, Tuple
 from sklearn.preprocessing import OrdinalEncoder, MinMaxScaler
-from keras_models import create_model17EN1EN2emb1, create_model17noEN1EN2, create_model17
+from keras_models import create_model17, create_model17_no_en1_en2
 from utils import data_path, save_data_path, models_dir, lgbm_datasets_dir, reduce_mem_usage
 
 
@@ -217,7 +217,7 @@ def make_x(df: pd.DataFrame, dense_cols: List[str], cat_cols: List[str]) -> Dict
 
 
 def create_model(dense_cols, end_train: int, x_train: Dict[str, int], y_train: pd.Series,
-                 ver, model_func: Callable) -> None:
+                 ver: str, embedding: int, model_func: Callable) -> None:
     """ Loads the requested model, trains on training data and saves model weights
     Args:
         dense_cols: List of numerical and boolean columns
@@ -225,11 +225,12 @@ def create_model(dense_cols, end_train: int, x_train: Dict[str, int], y_train: p
         x_train: Input training features in a dictionary
         y_train: Input training labels
         ver: Model version
+        embedding: Number of embeddings to be used
         model_func: Model function used to train the data
     """
     # train
     base_epochs = 30
-    model = model_func(num_dense_features=len(dense_cols), lr=0.0001)
+    model = model_func(num_dense_features=len(dense_cols), lr=0.0001, embedding=embedding)
 
     model.save_weights(models_dir + 'Keras_CatEmb_final3_et' + str(end_train) + 'ep' +
                        str(base_epochs) + '_ver-' + ver + '.h5')
@@ -430,12 +431,12 @@ def train_model() -> None:
 
     # First Model
     create_model(dense_cols, end_train, x_train, y_train,
-                 ver='EN1EN2Emb1', model_func=create_model17EN1EN2emb1)
+                 ver='EN1EN2Emb1', embedding=2, model_func=create_model17)
 
     # Second Model
     create_model(dense_cols, end_train, x_train, y_train,
-                 ver='noEN1EN2', model_func=create_model17noEN1EN2)
+                 ver='noEN1EN2', embedding=2, model_func=create_model17_no_en1_en2)
 
     # Third Model
     create_model(dense_cols, end_train, x_train, y_train,
-                 ver='17last', model_func=create_model17)
+                 ver='17last', embedding=1, model_func=create_model17)

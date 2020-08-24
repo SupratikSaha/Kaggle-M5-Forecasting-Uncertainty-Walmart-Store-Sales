@@ -21,7 +21,7 @@ lgbm_datasets_dir = os.path.join(os.path.dirname(__file__), SETTINGS['LGBM_DATAS
 submission_dir = SETTINGS['SUBMISSION_DIR']
 
 
-def make_normal_lag(grid_df: pd.DataFrame, target: str, lag_day: int) -> pd.DataFrame:
+def make_normal_lag(grid_df: pd.DataFrame, target: str, lag_day: int) -> pd.Series:
     """Function to facilitate faster lags creation using our normal Lags (7 days)
        Args:
            grid_df: Input data frame
@@ -37,8 +37,7 @@ def make_normal_lag(grid_df: pd.DataFrame, target: str, lag_day: int) -> pd.Data
     return lag_df[[column_name]]
 
 
-# Helper to make dynamic rolling lags
-def make_lag_roll(base_test: pd.DataFrame, target: str, lag_day: List[int]):
+def make_lag_roll(base_test: pd.DataFrame, target: str, lag_day: List[int]) -> pd.Series:
     """Function to facilitate faster dynamic rolling lags creation using our normal Lags (7 days)
        Args:
            base_test: Input data frame
@@ -188,6 +187,7 @@ def prep_calendar(df: pd.DataFrame) -> pd.DataFrame:
     cols = list(set(df.columns) - {"wm_yr_wk", "d"})
     df[cols] = OrdinalEncoder(dtype="int").fit_transform(df[cols])
     df = reduce_mem_usage(df)
+    
     return df
 
 

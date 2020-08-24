@@ -76,6 +76,7 @@ def predict_model(dense_cols: List[str], cat_cols: List[str], end_train: int, sa
 
 
 def predict_results() -> None:
+    """ Main function to generate model predictions """
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
     seed = 42

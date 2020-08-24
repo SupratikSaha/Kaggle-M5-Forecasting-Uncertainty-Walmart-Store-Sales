@@ -140,14 +140,11 @@ def make_pca(df: pd.DataFrame, pca_col: str, n_days: int, seed: int, target: str
     persist_columns = pca_columns[:3]
     print('Columns to keep:', persist_columns)
 
-    # If we are doing pca for other series "levels" we need merge back our results to merge_base df
-    # and only than return resulted df. I'll skip that step here
-
     return pca_df[persist_columns]
 
 
 def df_parallelize_run(func: Callable, term_split: List[Any], grid_df: pd.DataFrame,
-                       n_cores: int, target: str):
+                       n_cores: int, target: str) -> pd.DataFrame:
     """ Function to parallelize runs using multiprocessing. This function is NOT 'bulletproof',
     We need to be careful and pass only correct types of variables.
     Args:
@@ -157,6 +154,7 @@ def df_parallelize_run(func: Callable, term_split: List[Any], grid_df: pd.DataFr
         n_cores: Number of CPU cores being used
         target: Main target column name
     Returns:
+        Returns data frame with lags of target
     """
     num_cores = np.min([n_cores, len(term_split)])
     pool = Pool(num_cores)
@@ -168,7 +166,7 @@ def df_parallelize_run(func: Callable, term_split: List[Any], grid_df: pd.DataFr
     return df
 
 
-def find_last_sale(df, n_day, target) -> pd.Series:
+def find_last_sale(df: pd.DataFrame, n_day: int, target: str) -> pd.Series:
     """ Function to get last non zero sale
     Args:
         df: Input data frame

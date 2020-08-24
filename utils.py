@@ -187,7 +187,7 @@ def prep_calendar(df: pd.DataFrame) -> pd.DataFrame:
     cols = list(set(df.columns) - {"wm_yr_wk", "d"})
     df[cols] = OrdinalEncoder(dtype="int").fit_transform(df[cols])
     df = reduce_mem_usage(df)
-    
+
     return df
 
 

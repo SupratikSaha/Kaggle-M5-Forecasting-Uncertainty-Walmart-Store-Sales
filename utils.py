@@ -144,7 +144,7 @@ def get_data_by_store(store: int, target: str) -> Tuple[pd.DataFrame, List[str]]
         'rolling_mean_tmp_14_7', 'rolling_mean_tmp_14_14',
         'rolling_mean_tmp_14_30', 'rolling_mean_tmp_14_60']
 
-        # Read and contact basic feature
+    # Read and contact basic feature
     df = pd.concat([pd.read_pickle(base_path),
                     pd.read_pickle(price_path).iloc[:, 2:],
                     pd.read_pickle(calendar_path).iloc[:, 2:]],

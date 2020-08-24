@@ -9,6 +9,13 @@ from utils import data_path, submission_dir
 
 
 def get_ratios(qs: np.array, coef: float = 0.15) -> np.ndarray[float]:
+    """ Generate ratios using normal cumulative distribution function
+    Args:
+        qs: quantiles with confidence probabilities
+        coef: Coefficient value
+    Returns:
+        Generated ratios using normal cumulative distribution function
+    """
     qs2 = np.log(qs / (1 - qs)) * coef
     ratios = stats.norm.cdf(qs2)
     ratios /= ratios[4]
@@ -19,6 +26,14 @@ def get_ratios(qs: np.array, coef: float = 0.15) -> np.ndarray[float]:
 
 
 def get_ratios2(qs: np.array, coef: float = 0.15, a: float = 1.2) -> np.ndarray[float]:
+    """ Generate ratios using skewed normal cumulative distribution function
+    Args:
+        qs: quantiles with confidence probabilities
+        coef: Coefficient value
+        a: skewness parameter
+    Returns:
+        Generated ratios using skewed normal cumulative distribution function
+    """
     qs2 = np.log(qs / (1 - qs)) * coef
     ratios = stats.skewnorm.cdf(qs2, a)
     ratios /= ratios[4]
@@ -29,6 +44,15 @@ def get_ratios2(qs: np.array, coef: float = 0.15, a: float = 1.2) -> np.ndarray[
 
 
 def get_ratios3(qs: np.array, coef: float = 0.15, c: float = 0.5, s: float = 0.1) -> np.ndarray[float]:
+    """ Generate ratios using power log-normal cumulative distribution function
+    Args:
+        qs: quantiles with confidence probabilities
+        coef: Coefficient value
+        c: power parameter
+        s: shape parameter
+    Returns:
+        Generated ratios using power log-normal cumulative distribution function
+    """
     qs2 = qs * coef
     ratios = stats.powerlognorm.ppf(qs2, c, s)
     ratios /= ratios[4]
@@ -40,8 +64,13 @@ def get_ratios3(qs: np.array, coef: float = 0.15, c: float = 0.5, s: float = 0.1
 
 
 def widen(array:  np.ndarray[float], pc: float) -> np.ndarray[float]:
-    # array : array of df
-    # pc: per cent (0:100)
+    """ Function to widen the ratio distribution
+    Args:
+        array : array of ratios
+        pc: per cent (0:100)
+    Returns:
+        Widened array of ratios
+    """
     array[array < 1] = array[array < 1] * (1 - pc / 100)
     array[array > 1] = array[array > 1] * (1 + pc / 100)
 
@@ -49,6 +78,14 @@ def widen(array:  np.ndarray[float], pc: float) -> np.ndarray[float]:
 
 
 def quantile_coefs(q: np.ndarray[float], level: Any, level_coef_dict: Dict) -> np.ndarray[float]:
+    """ Function to get quantiles of a specified level coefficient
+    Args:
+        q: Repeated array of quantiles with confidence probabilities
+        level: Level coefficient(s)
+        level_coef_dict: Dictionary of level coefficients
+    Returns:
+        Returns quantiles of a specified level coefficient
+    """
     ratios = level_coef_dict[level]
 
     return ratios.loc[q].values
@@ -56,6 +93,16 @@ def quantile_coefs(q: np.ndarray[float], level: Any, level_coef_dict: Dict) -> n
 
 def get_group_preds(qs: np.array, pred: pd.DataFrame, level: str,
                     level_coef_dict: Dict, cols: List[str]) -> pd.DataFrame:
+    """ Function to get aggregated predictions for a coefficient level
+    Args:
+        qs: quantiles with confidence probabilities
+        pred: Model predictions
+        level: Level coefficient
+        level_coef_dict: Dictionary of level coefficients
+        cols: Column names of aggregated uncertainties in the output file
+    Returns:
+        Returns aggregated predictions for a coefficient level
+    """
     df = pred.groupby(level)[cols].sum()
     q = np.repeat(qs, len(df))
     df = pd.concat([df] * 9, axis=0, sort=False)
@@ -72,6 +119,17 @@ def get_group_preds(qs: np.array, pred: pd.DataFrame, level: str,
 
 def get_couple_group_preds(qs: np.array, pred: pd.DataFrame, level1: str, level2: str,
                            level_coef_dict: Dict, cols: List[str]) -> pd.DataFrame:
+    """ Function to get aggregated predictions for the couple coefficients
+    Args:
+        qs: quantiles with confidence probabilities
+        pred: Model predictions
+        level1: Level coefficient 1
+        level2: Level coefficient 2
+        level_coef_dict: Dictionary of level coefficients
+        cols: Column names of aggregated uncertainties in the output file
+    Returns:
+        Returns aggregated predictions for the couple coefficients
+    """
     df = pred.groupby([level1, level2])[cols].sum()
     q = np.repeat(qs, len(df))
     df = pd.concat([df] * 9, axis=0, sort=False)
@@ -85,13 +143,11 @@ def get_couple_group_preds(qs: np.array, pred: pd.DataFrame, level1: str, level2
 
 
 def predict_uncertainties() -> None:
+    """ Main function to aggregate predictions and create uncertainty predictions for final submission"""
     acc_filename = sys.argv[1]
     print('creating uncertainty predictions for: ' + acc_filename)
     
     best = pd.read_csv(submission_dir + acc_filename)
-    
-    # copy accuracy's private LB data to public LB data
-    # both public and private LB predictions will be equal, only private LB will be right
     best.iloc[:30490, 1:] = best.iloc[30490:, 1:].values
     
     # Exponential weighted Mean

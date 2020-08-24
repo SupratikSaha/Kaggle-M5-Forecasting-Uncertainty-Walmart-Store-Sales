@@ -5,6 +5,7 @@ pandas==0.24.2
 psutil==5.6.1
 scikit-learn==0.22.2.post1
 scipy==1.4.1
+tensorflow-gpu==1.13.1
 tqdm==4.31.1
 
 

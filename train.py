@@ -44,7 +44,7 @@ def create_model(dense_cols: List[str], end_train: int, x_train: Dict[str, int],
 
 
 def train_model() -> None:
-    """ Function to pre-process training data and train using pre built models"""
+    """ Main function to pre-process training data and train using pre built models"""
     warnings.filterwarnings('ignore')
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 

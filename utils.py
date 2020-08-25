@@ -18,7 +18,7 @@ data_path = os.path.join(os.path.dirname(__file__), SETTINGS['RAW_DATA_DIR'])
 save_data_path = os.path.join(os.path.dirname(__file__), SETTINGS['PROCESSED_DATA_DIR'])
 models_dir = os.path.join(os.path.dirname(__file__), SETTINGS['MODELS_DIR'])
 lgbm_datasets_dir = os.path.join(os.path.dirname(__file__), SETTINGS['LGBM_DATASETS_DIR'])
-submission_dir = SETTINGS['SUBMISSION_DIR']
+submission_dir = os.path.join(os.path.dirname(__file__), SETTINGS['SUBMISSION_DIR'])
 
 
 def make_normal_lag(grid_df: pd.DataFrame, target: str, lag_day: int) -> pd.Series:

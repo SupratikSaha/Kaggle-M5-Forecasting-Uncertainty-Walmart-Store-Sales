@@ -219,7 +219,7 @@ def predict_results() -> None:
 
     # predict model 1
     val_preds_df_1 = predict_model(dense_cols, cat_cols, end_train, sales, scaler1,
-                                   ver='With_Emb1', embedding=1, model_func=keras_model)
+                                   ver='With_Emb1', embedding=2, model_func=keras_model)
     gc.collect()
 
     # predict model 2
@@ -229,7 +229,7 @@ def predict_results() -> None:
 
     # predict model 3
     val_preds_df_3 = predict_model(dense_cols, cat_cols, end_train, sales, scaler1,
-                                   ver='Original', embedding=2, model_func=keras_model)
+                                   ver='Original', embedding=1, model_func=keras_model)
     gc.collect()
 
     ver = 'avg3'

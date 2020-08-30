@@ -645,9 +645,8 @@ def prepare_datasets() -> None:
         # We will make validation set copy to restore features states on each run
         temp_df = validation_df.copy()
 
-        # Error appears here if we have "categorical" features and can't
-        # do np.random.permutation without disrupt categories, so we need to check
-        # if feature is numerical
+        # Error appears here if we have "categorical" features and can't do np.random.permutation
+        # without disrupt categories, so we need to check if feature is numerical
         if temp_df[col].dtypes.name != 'category':
             temp_df[col] = np.random.permutation(temp_df[col].values)
             temp_df['preds'] = test_model.predict(temp_df[features_columns])

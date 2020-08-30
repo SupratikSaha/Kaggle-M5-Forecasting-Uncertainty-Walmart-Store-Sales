@@ -221,6 +221,7 @@ def train_model() -> None:
     x_train = make_x(sales[flag], dense_cols, cat_cols)
     x_train['dense1'], scaler1 = preprocess_data(x_train['dense1'])
     y_train = sales["demand"][flag].values
+    sales.to_pickle(lgbm_datasets_dir + 'keras_train_data' + '.pkl')
 
     # First Model
     create_model(dense_cols, end_train, x_train, y_train,

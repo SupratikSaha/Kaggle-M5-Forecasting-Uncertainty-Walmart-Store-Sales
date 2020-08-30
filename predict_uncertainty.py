@@ -1,6 +1,5 @@
 """ Code file to predict uncertainties and generate final submissions """
 
-import sys
 import numpy as np
 import pandas as pd
 import scipy.stats as stats
@@ -8,7 +7,7 @@ from typing import Any, Dict, List
 from utils import data_path, submission_dir
 
 
-def get_ratios(qs: np.array, coef: float = 0.15) -> np.ndarray[float]:
+def get_ratios(qs: np.ndarray, coef: float = 0.15) -> np.ndarray:
     """ Generate ratios using normal cumulative distribution function
     Args:
         qs: quantiles with confidence probabilities
@@ -25,7 +24,7 @@ def get_ratios(qs: np.array, coef: float = 0.15) -> np.ndarray[float]:
     return ratios.round(3)
 
 
-def get_ratios2(qs: np.array, coef: float = 0.15, a: float = 1.2) -> np.ndarray[float]:
+def get_ratios2(qs: np.ndarray, coef: float = 0.15, a: float = 1.2) -> np.ndarray:
     """ Generate ratios using skewed normal cumulative distribution function
     Args:
         qs: quantiles with confidence probabilities
@@ -43,7 +42,7 @@ def get_ratios2(qs: np.array, coef: float = 0.15, a: float = 1.2) -> np.ndarray[
     return ratios.round(3)
 
 
-def get_ratios3(qs: np.array, coef: float = 0.15, c: float = 0.5, s: float = 0.1) -> np.ndarray[float]:
+def get_ratios3(qs: np.ndarray, coef: float = 0.15, c: float = 0.5, s: float = 0.1) -> np.ndarray:
     """ Generate ratios using power log-normal cumulative distribution function
     Args:
         qs: quantiles with confidence probabilities
@@ -63,7 +62,7 @@ def get_ratios3(qs: np.array, coef: float = 0.15, c: float = 0.5, s: float = 0.1
     return ratios.round(3)
 
 
-def widen(array:  np.ndarray[float], pc: float) -> np.ndarray[float]:
+def widen(array:  np.ndarray, pc: float) -> np.ndarray:
     """ Function to widen the ratio distribution
     Args:
         array : array of ratios
@@ -77,7 +76,7 @@ def widen(array:  np.ndarray[float], pc: float) -> np.ndarray[float]:
     return array
 
 
-def quantile_coefs(q: np.ndarray[float], level: Any, level_coef_dict: Dict) -> np.ndarray[float]:
+def quantile_coefs(q: np.ndarray, level: Any, level_coef_dict: Dict) -> np.ndarray:
     """ Function to get quantiles of a specified level coefficient
     Args:
         q: Repeated array of quantiles with confidence probabilities
@@ -91,7 +90,7 @@ def quantile_coefs(q: np.ndarray[float], level: Any, level_coef_dict: Dict) -> n
     return ratios.loc[q].values
 
 
-def get_group_preds(qs: np.array, pred: pd.DataFrame, level: str,
+def get_group_preds(qs: np.ndarray, pred: pd.DataFrame, level: str,
                     level_coef_dict: Dict, cols: List[str]) -> pd.DataFrame:
     """ Function to get aggregated predictions for a coefficient level
     Args:
@@ -117,7 +116,7 @@ def get_group_preds(qs: np.array, pred: pd.DataFrame, level: str,
     return df
 
 
-def get_couple_group_preds(qs: np.array, pred: pd.DataFrame, level1: str, level2: str,
+def get_couple_group_preds(qs: np.ndarray, pred: pd.DataFrame, level1: str, level2: str,
                            level_coef_dict: Dict, cols: List[str]) -> pd.DataFrame:
     """ Function to get aggregated predictions for the couple coefficients
     Args:
@@ -144,7 +143,7 @@ def get_couple_group_preds(qs: np.array, pred: pd.DataFrame, level1: str, level2
 
 def predict_uncertainties() -> None:
     """ Main function to aggregate predictions and create uncertainty predictions for final submission"""
-    acc_filename = sys.argv[1]
+    acc_filename = 'lgbm3keras1.csv.gz'
     print('creating uncertainty predictions for: ' + acc_filename)
     
     best = pd.read_csv(submission_dir + acc_filename)
@@ -165,7 +164,7 @@ def predict_uncertainties() -> None:
     # The higher the aggregation level, the more confident we are in the point 
     # prediction --> lower coef, relatively smaller range of quantiles
     qs = np.array([0.005, 0.025, 0.165, 0.25, 0.5, 0.75, 0.835, 0.975, 0.995])
-    
+
     level_coef_dict = {
         "id": widen((get_ratios2(qs, coef=0.3) + get_ratios3(qs, coef=.3, c=0.04, s=0.9)) / 2, pc=0.5),
         "item_id": widen(get_ratios2(qs, coef=0.18, a=0.4), pc=0.5),
@@ -180,12 +179,12 @@ def predict_uncertainties() -> None:
         ("state_id", "cat_id"): widen(get_ratios(qs, coef=0.04), 0.5),
         ("store_id", "cat_id"): widen(get_ratios(qs, coef=0.055), 0.5)
     }
-    
+
     levels = ["id", "item_id", "dept_id", "cat_id", "store_id", "state_id", "_all_"]
     couples = [("state_id", "item_id"), ("state_id", "dept_id"), ("store_id", "dept_id"),
                ("state_id", "cat_id"), ("store_id", "cat_id")]
     cols = [f"F{i}" for i in range(1, 29)]
-    
+
     # Make predictions
     df = []
     for level in levels:
@@ -198,18 +197,18 @@ def predict_uncertainties() -> None:
     df.reset_index(drop=True, inplace=True)
     df.loc[df.index >= len(df.index) // 2, "id"] = df.loc[df.index >= len(df.index) // 2, "id"].str.replace(
         "_validation$", "_evaluation")
-    
+
     # Statistical computation to help overwrite Level12
     sales.sort_values('id', inplace=True)
     sales.reset_index(drop=True, inplace=True)
-    
+
     quantity_sales = np.average(np.stack((
         sales.iloc[:, -364:].quantile(np.array([0.005, 0.025, 0.165, 0.25, 0.5, 0.75, 0.835, 0.975, 0.995]), axis=1).T,
         sales.iloc[:, -28:].quantile(np.array([0.005, 0.025, 0.165, 0.25, 0.5, 0.75, 0.835, 0.975, 0.995]), axis=1).T,
     )), axis=0, weights=[1, 1.75])
-    
+
     quantity_sales_w = []
-    
+
     for i in range(7):
         quantity_sales_w.append(
             np.expand_dims(
@@ -223,31 +222,31 @@ def predict_uncertainties() -> None:
                              quantity_sales.shape[0] * quantity_sales.shape[1], order='F')), -1), axis=-1), -1)
         )
     quantity_sales_w = np.hstack(quantity_sales_w)
-    
+
     quantity_sales_w = np.tile(quantity_sales_w, 4)
-    
+
     medians = np.where(np.array([float(x.split('_')[-2]) for x in df.iloc[:274410, 0]]) == 0.5)[0]
     not_median = np.array([x for x in np.arange(274410) if x not in medians])
-    
-    # Overwrite Level12 
+
+    # Overwrite Level12
     df.iloc[not_median, 1:] = (0.2 * df.iloc[not_median, 1:] + 0.7 * np.repeat(
         np.expand_dims(
             quantity_sales.reshape(
                 quantity_sales.shape[0] * quantity_sales.shape[1], order='F'), -1), 28, 1)[not_median, :]
                 + 0.1 * quantity_sales_w[not_median, :])
-    
+
     df.iloc[medians, 1:] = (0.8 * df.iloc[medians, 1:] + 0.2 * np.repeat(
         np.expand_dims(
             quantity_sales.reshape(
                 quantity_sales.shape[0] * quantity_sales.shape[1], order='F'), -1), 28, 1)[medians, :])
-    
+
     # Statistical computation to help overwrite Level of 'state_id','item_id' group
     quantity_sales_df = pd.DataFrame(quantity_sales)
     quantity_sales_df['item_id'] = sales['item_id'].values
     quantity_sales_df['state_id'] = sales['state_id'].values
     quantity_sales_df_gb = quantity_sales_df.groupby(['state_id', 'item_id'], as_index=False).mean().iloc[:, 2:]
-    
-    sales_g_item_q = quantity_sales_df_gb.values.reshape(quantity_sales_df_gb.shape[0] * quantity_sales_df_gb.shape[1], 
+
+    sales_g_item_q = quantity_sales_df_gb.values.reshape(quantity_sales_df_gb.shape[0] * quantity_sales_df_gb.shape[1],
                                                          order='F')
     sales_g_item_q = np.repeat(np.expand_dims(sales_g_item_q, -1), 28, 1)
 

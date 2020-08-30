@@ -127,15 +127,15 @@ def predict_results() -> None:
         grid_df = pd.concat([grid_df, df_parallelize_run(make_lag_roll, rows_split,
                                                          grid_df, n_cores, target)], axis=1)
 
+        day_mask = base_test['d'] == (end_train + predict_day)
+
         for store_id in store_ids:
             # Read all our models and make predictions
             model_path = models_dir + 'lgbm_finalmodel_' + store_id + '_v' + str(ver) + '.bin'
 
             estimator = pickle.load(open(model_path, 'rb'))
 
-            day_mask = base_test['d'] == (end_train + predict_day)
             store_mask = base_test['store_id'] == store_id
-
             mask = day_mask & store_mask
             base_test[target][mask] = estimator.predict(grid_df[mask][model_features])
 

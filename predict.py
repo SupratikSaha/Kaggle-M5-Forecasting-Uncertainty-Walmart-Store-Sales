@@ -10,7 +10,7 @@ from prepare_data import df_parallelize_run
 from utils import *
 
 
-def get_base_test(store_identifiers: List[int]) -> pd.DataFrame():
+def get_base_test(store_identifiers: List[str]) -> pd.DataFrame():
     """ Function to recombine Test set after training
     Args:
         store_identifiers: List of store Ids
@@ -130,6 +130,7 @@ def predict_results() -> None:
         day_mask = base_test['d'] == (end_train + predict_day)
 
         for store_id in store_ids:
+            print("store_id: ", store_id)
             # Read all our models and make predictions
             model_path = models_dir + 'lgbm_finalmodel_' + store_id + '_v' + str(ver) + '.bin'
 
@@ -137,6 +138,7 @@ def predict_results() -> None:
 
             store_mask = base_test['store_id'] == store_id
             mask = day_mask & store_mask
+
             base_test[target][mask] = estimator.predict(grid_df[mask][model_features])
 
         # Make good column naming and add to all_preds DataFrame
@@ -159,7 +161,8 @@ def predict_results() -> None:
     val_df = val_df.merge(all_preds, on=['id'], how='left').fillna(0)
     val_df.to_csv(submission_dir + 'lgbm_final_VER' + str(ver) + '.csv.gz',
                   index=False, compression='gzip')
-    val_preds_df_lgbm = val_df.copy()
+
+    del all_preds, val_df
     gc.collect()
 
     # read raw data
@@ -173,6 +176,7 @@ def predict_results() -> None:
     sales = reshape_sales(sales, 1000)
 
     sales = sales.merge(calendar, how="left", on="d")
+    del calendar
     gc.collect()
 
     sales = sales.merge(selling_prices, how="left", on=["wm_yr_wk", "store_id", "item_id"])
@@ -242,6 +246,9 @@ def predict_results() -> None:
 
     # Ensemble
     # Submissions for M5 accuracy competition, used as starting point to M5 uncertainty
+    val_preds_df_lgbm = pd.read_csv(submission_dir + 'lgbm_final_VER' + str(ver) + '.csv.gz',
+                                    compression='gzip')
+
     final_preds_acc = val_preds_df_lgbm.copy()
     final_preds_acc.iloc[:, 1:] = (val_preds_df_lgbm.iloc[:, 1:] ** 3 * val_preds_df.iloc[:, 1:]) ** (1 / 4)
 

@@ -10,23 +10,6 @@ from prepare_data import df_parallelize_run
 from utils import *
 
 
-def get_base_test(store_identifiers: List[str]) -> pd.DataFrame():
-    """ Function to recombine Test set after training
-    Args:
-        store_identifiers: List of store Ids
-    Returns:
-        Returns combined train and test data
-    """
-    base_test = pd.DataFrame()
-
-    for store_id in store_identifiers:
-        temp_df = pd.read_pickle(lgbm_datasets_dir + 'test_' + str(store_id) + '.pkl')
-        temp_df['store_id'] = store_id
-        base_test = pd.concat([base_test, temp_df]).reset_index(drop=True)
-
-    return base_test
-
-
 def predict_model(dense_cols: List[str], cat_cols: List[str], end_train: int, sales: pd.DataFrame,
                   scaler1: Callable, ver: str, embedding: int, model_func: Callable) -> pd.DataFrame:
     """ Loads the requested model, trains on training data and saves model weights
@@ -64,7 +47,7 @@ def predict_model(dense_cols: List[str], cat_cols: List[str], end_train: int, sa
     val_preds = val_preds.values.reshape(30490, 28, order='F')
 
     # write to disk
-    ss = pd.read_csv(data_path + 'sample_submission.csv')[['id']]
+    ss = pd.read_csv(data_path + 'sample_submission_accuracy.csv')[['id']]
     val_preds_df = pd.DataFrame(val_preds, columns=['F' + str(i) for i in range(1, 29)])
     val_preds_df = pd.concat([ss.id, pd.concat(
         [pd.DataFrame(np.zeros((30490, 28), dtype=np.float32), columns=['F' + str(i) for i in range(1, 29)]),
@@ -110,59 +93,76 @@ def predict_results() -> None:
     # Predict - Create Dummy DataFrame to store predictions
     all_preds = pd.DataFrame()
 
-    # Join back the Test dataset with a small part of the training data to make recursive features 
-    base_test = get_base_test(store_ids)
+    for store_id in store_ids:
+        print("store_id: ", store_id)
 
-    # Timer to measure predictions time 
-    main_time = time.time()
-
-    # Loop over each prediction day. As rolling lags are the most time consuming
-    # we will calculate it for whole day
-    for predict_day in range(1, 29):
-        print('Predict | Day:', predict_day)
-        start_time = time.time()
+        # Timer to measure predictions time
+        main_time = time.time()
 
         # Make temporary grid to calculate rolling lags
-        grid_df = base_test.copy()
+        grid_df = pd.read_pickle(lgbm_datasets_dir + 'test_' + str(store_id) + '.pkl')
         grid_df = pd.concat([grid_df, df_parallelize_run(make_lag_roll, rows_split,
                                                          grid_df, n_cores, target)], axis=1)
 
-        day_mask = base_test['d'] == (end_train + predict_day)
+        # Read all our models and make predictions
+        model_path = models_dir + 'lgbm_finalmodel_' + store_id + '_v' + str(ver) + '.bin'
+        estimator = pickle.load(open(model_path, 'rb'))
 
-        for store_id in store_ids:
-            print("store_id: ", store_id)
-            # Read all our models and make predictions
-            model_path = models_dir + 'lgbm_finalmodel_' + store_id + '_v' + str(ver) + '.bin'
+        store_preds = pd.DataFrame()
 
-            estimator = pickle.load(open(model_path, 'rb'))
+        # Loop over each prediction day. As rolling lags are the most time consuming
+        # we will calculate it for whole day
+        for predict_day in range(1, 29):
+            print('Predict | Day:', predict_day)
+            start_time = time.time()
 
-            store_mask = base_test['store_id'] == store_id
-            mask = day_mask & store_mask
+            temp_df = grid_df[grid_df['d'] == (end_train + predict_day)]
+            temp_df[target] = estimator.predict(temp_df[model_features])
 
-            base_test[target][mask] = estimator.predict(grid_df[mask][model_features])
+            # Make good column naming and add to all_preds DataFrame
+            temp_df = temp_df[['id', target]]
+            temp_df.columns = ['id', 'F' + str(predict_day)]
 
-        # Make good column naming and add to all_preds DataFrame
-        temp_df = base_test[day_mask][['id', target]]
-        temp_df.columns = ['id', 'F' + str(predict_day)]
+            if 'id' in list(store_preds):
+                store_preds = store_preds.merge(temp_df, on=['id'], how='left')
+            else:
+                store_preds = temp_df.copy()
+
+            print('#' * 10, ' %0.2f min round |' % ((time.time() - start_time) / 60),
+                  ' %0.2f day sales |' % (temp_df['F' + str(predict_day)].sum()))
+            del temp_df
         if 'id' in list(all_preds):
-            all_preds = all_preds.merge(temp_df, on=['id'], how='left')
+            all_preds = all_preds.append(store_preds)
         else:
-            all_preds = temp_df.copy()
+            all_preds = store_preds.copy()
 
-        print('#' * 10, ' %0.2f min round |' % ((time.time() - start_time) / 60),
-              ' %0.2f min total |' % ((time.time() - main_time) / 60),
-              ' %0.2f day sales |' % (temp_df['F' + str(predict_day)].sum()))
-        del temp_df
+        print('#' * 10, store_id, ' %0.2f min total |' % ((time.time() - main_time) / 60))
+        del store_preds
+
+        # Get the actual validation values and concatenate wih evaluation predictions
+        val_df = grid_df[(grid_df['d'] >= 1914) & (grid_df['d'] <= 1941)]
+        del grid_df
+
+        val_df['d'] = val_df['d'] - 1913
+        val_df = val_df.pivot_table(index='id', columns='d', values=target)
+        val_df_cols = val_df.columns.to_list()
+        for i in range(28):
+            val_df_cols[i] = 'F' + str(val_df_cols[i])
+
+        val_df.columns = val_df_cols
+        val_df = val_df.reset_index()
+        val_df['id'] = val_df['id'].str.replace('evaluation', 'validation')
+        all_preds = all_preds.append(val_df)
+        del val_df
 
     all_preds = all_preds.reset_index(drop=True)
-
     # SAVE TO DISK
-    val_df = pd.read_csv(data_path + 'sample_submission.csv')[['id']]
-    val_df = val_df.merge(all_preds, on=['id'], how='left').fillna(0)
-    val_df.to_csv(submission_dir + 'lgbm_final_VER' + str(ver) + '.csv.gz',
-                  index=False, compression='gzip')
+    result_df = pd.read_csv(data_path + 'sample_submission_accuracy.csv')[['id']]
+    result_df = result_df.merge(all_preds, on=['id'], how='left').fillna(0)
+    result_df.to_csv(submission_dir + 'lgbm_final_VER' + str(ver) + '.csv.gz',
+                     index=False, compression='gzip')
 
-    del all_preds, val_df
+    del all_preds, result_df
     gc.collect()
 
     # read raw data
@@ -216,10 +216,14 @@ def predict_results() -> None:
     for i, v in tqdm.tqdm(enumerate(num_cols)):
         sales[v] = sales[v].fillna(sales[v].median())
 
+    sales.to_csv(submission_dir + 'Keras_sales_data' + str(end_train) +
+                 '_ver-' + ver + '.csv.gz', index=False, compression='gzip')
+
     # Make train data to use num cols for scaling test data
     flag = (sales.d < end_train + 1) & (sales.d > end_train + 1 - 17 * 28)
     x_train = make_x(sales[flag], dense_cols, cat_cols)
     x_train['dense1'], scaler1 = preprocess_data(x_train['dense1'])
+    del x_train
 
     # predict model 1
     val_preds_df_1 = predict_model(dense_cols, cat_cols, end_train, sales, scaler1,
@@ -246,7 +250,7 @@ def predict_results() -> None:
 
     # Ensemble
     # Submissions for M5 accuracy competition, used as starting point to M5 uncertainty
-    val_preds_df_lgbm = pd.read_csv(submission_dir + 'lgbm_final_VER' + str(ver) + '.csv.gz',
+    val_preds_df_lgbm = pd.read_csv(submission_dir + 'lgbm_final_VER4.csv.gz',
                                     compression='gzip')
 
     final_preds_acc = val_preds_df_lgbm.copy()
@@ -262,5 +266,17 @@ def predict_results() -> None:
     # For days keras preds fails, replace with lgbm preds
     for d in keras_outlier_days:
         final_preds_acc.iloc[:, d + 1] = val_preds_df_lgbm.iloc[:, d + 1].values
+
+    # Take out the evaluation pieces in the prediction
+    final_preds_acc = final_preds_acc[final_preds_acc['id'].str.contains('evaluation')]
+
+    # Get the actual validation values
+    val_pred_valid = pd.read_csv(data_path + "sales_train_evaluation.csv")
+    val_pred_valid_id = val_pred_valid[['id']]
+    val_pred_valid_id['id'] = val_pred_valid_id['id'].str.replace('evaluation', 'validation')
+    val_pred_valid_sales = val_pred_valid.iloc[:, -28:]
+    val_pred_valid_sales.columns = ['F' + str(int(i[2:]) - 1913) for i in list(val_pred_valid_sales.columns)]
+    val_pred = pd.concat([val_pred_valid_id, val_pred_valid_sales], axis=1, join='inner')
+    final_preds_acc = final_preds_acc.append(val_pred)
 
     final_preds_acc.to_csv(submission_dir + 'lgbm3keras1.csv.gz', index=False, compression='gzip')

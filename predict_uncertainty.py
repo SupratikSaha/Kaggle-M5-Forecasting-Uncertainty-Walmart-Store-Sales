@@ -260,4 +260,8 @@ def predict_uncertainties() -> None:
     df.iloc[int(df.shape[0] / 2):, 1:] = df.iloc[:int(df.shape[0] / 2), 1:].values
     
     # Create final submission file
-    df.to_csv(submission_dir + "submission_uncertainty.csv", index=False)
+    ss = pd.read_csv(data_path + 'sample_submission.csv')
+    df.columns = ss.columns
+    ss = ss[['id']]
+    submission = ss.merge(df, on=['id'], how='left')
+    submission.to_csv(submission_dir + "submission_uncertainty.csv", index=False)

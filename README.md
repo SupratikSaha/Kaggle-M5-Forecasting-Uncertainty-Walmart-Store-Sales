@@ -23,7 +23,7 @@ pandas,
 psutil, 
 scikit-learn, 
 scipy, 
-tensorflow-gpu, 
+tensorflow-gpu and 
 tqdm
 
 ## Folders needed to run code

@@ -9,8 +9,6 @@ https://www.kaggle.com/c/m5-forecasting-uncertainty
 The submission had a Weighted Scaled Pinball Loss score of 0.25547 on the private leader board 
 and 0.06691 on the public leader board
 
-![My Submission](images/kaggle_submission_score.jpg)
-
 # Steps to run project code
 
 ## Packages to be installed

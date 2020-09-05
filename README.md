@@ -15,16 +15,16 @@ and 0.06691 on the public leader board
 
 ## Packages to be installed
 
-Following packages specified in requirements.txt file need to be installed
-keras==2.2.4
-lightgbm==2.2.3
-numpy==1.16.2
-pandas==0.24.2
-psutil==5.6.1
-scikit-learn==0.22.2.post1
-scipy==1.4.1
-tensorflow-gpu==1.13.1
-tqdm==4.31.1
+Following packages specified in requirements.txt file need to be installed - 
+keras, 
+lightgbm, 
+numpy, 
+pandas, 
+psutil, 
+scikit-learn, 
+scipy, 
+tensorflow-gpu, 
+tqdm
 
 ## Folders needed to run code
 
